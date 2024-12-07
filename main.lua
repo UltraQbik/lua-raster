@@ -105,10 +105,19 @@ end
 function draw_call()
 	table.sort(
 		poly_queue,
-		function(a, b) return math.max(a[3], a[6], a[9]) < math.max(b[3], b[6], b[9]) end)
+		function(a, b) return math.max(a[3], a[6], a[9]) > math.max(b[3], b[6], b[9]) end)
 	for i, v in ipairs(poly_queue) do
+		local x1, y1, z1, x2, y2, z2, x3, y3, z3, color = unpack(v)
 		
+		-- project them from 3d to 2d
+		x1, y1 = project3d(x1, y1, z1)
+		x2, y2 = project3d(x2, y2, z2)
+		x3, y3 = project3d(x3, y3, z3)
+
+		-- draw polygon
+		draw_poly(x1, y1, x2, y2, x3, y3, color)
 	end
+	poly_queue = {}
 end
 
 function append_poly(x1, y1, z1, x2, y2, z2, x3, y3, z3, color)
@@ -167,30 +176,26 @@ function draw_cube(x, y, z, sx, sy, sz, rx, ry, rz)
 	local vertex_count = 12
 	for i=1, vertex_count do
 		-- fetch vertices
-		x1, y1, z1 = unpack(cube_vertices[cube_polygons[i][1]])
-		x2, y2, z2 = unpack(cube_vertices[cube_polygons[i][2]])
-		x3, y3, z3 = unpack(cube_vertices[cube_polygons[i][3]])
+		local x1, y1, z1 = unpack(cube_vertices[cube_polygons[i][1]])
+		local x2, y2, z2 = unpack(cube_vertices[cube_polygons[i][2]])
+		local x3, y3, z3 = unpack(cube_vertices[cube_polygons[i][3]])
 
 		-- rotate vertices
 		x1, y1, z1 = rotXYZ(x1 * sx, y1 * sy, z1 * sz, rx, ry, rz)
 		x2, y2, z2 = rotXYZ(x2 * sx, y2 * sy, z2 * sz, rx, ry, rz)
 		x3, y3, z3 = rotXYZ(x3 * sx, y3 * sy, z3 * sz, rx, ry, rz)
 
-		append_poly(x1, y1, z1, x2, y2, z2, x3, y3, z3, i / vertex_count * 255)
-
-		-- project them from 3d to 2d
-		px1, py1 = project3d(x1 + x, y1 + y, z1 + z)
-		px2, py2 = project3d(x2 + x, y2 + y, z2 +z)
-		px3, py3 = project3d(x3 + x, y3 + y, z3 +z)
-
-		-- draw polygon
-		draw_poly(px1, py1, px2, py2, px3, py3, i / vertex_count * 255)
+		append_poly(
+			x1 + x, y1 + y, z1 + z,
+			x2 + x, y2 + y, z2 + z,
+			x3 + x, y3 + y, z3 + z,
+			i / vertex_count * 255)
 	end
 end
 
 -- main loop
 local frame_count = 0
-function onStart()
+function onTick()
 	display.clear()
 	frame_count = frame_count + 1
 	draw_cube(

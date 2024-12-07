@@ -1,26 +1,3 @@
--- MIT License
--- 
--- Copyright (c) 2024 Qubik
--- 
--- Permission is hereby granted, free of charge, to any person obtaining a copy
--- of this software and associated documentation files (the "Software"), to deal
--- in the Software without restriction, including without limitation the rights
--- to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
--- copies of the Software, and to permit persons to whom the Software is
--- furnished to do so, subject to the following conditions:
--- 
--- The above copyright notice and this permission notice shall be included in all
--- copies or substantial portions of the Software.
--- 
--- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
--- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
--- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
--- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
--- LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
--- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
--- SOFTWARE.
-
-
 -- fetch display
 -- NOTE: this project was made using 128x128 display,
 -- and other resolutions for now will not be scaled
@@ -30,6 +7,10 @@ display.setOptimizationLevel(0)
 -- fetch display resolution
 local WIDTH, HEIGHT = display.getSize()
 local HWIDTH, HHEIGHT = WIDTH / 2, HEIGHT / 2
+
+-- variables
+local camx, camy, camz = 0, 0, 0
+local camrx, camry, camrz = 0, 0, 0
 
 -- constants
 local FOV = 120
@@ -105,14 +86,19 @@ end
 function draw_call()
 	table.sort(
 		poly_queue,
-		function(a, b) return math.max(a[3], a[6], a[9]) > math.max(b[3], b[6], b[9]) end)
+		function(a, b) return math.min(a[3], a[6], a[9]) > math.min(b[3], b[6], b[9]) end)
 	for i, v in ipairs(poly_queue) do
 		local x1, y1, z1, x2, y2, z2, x3, y3, z3, color = unpack(v)
+
+		-- rotate vertices
+		x1, y1, z1 = rotXYZ(x1, y1, z1, camrx, camry, camrz)
+		x2, y2, z2 = rotXYZ(x2, y2, z2, camrx, camry, camrz)
+		x3, y3, z3 = rotXYZ(x3, y3, z3, camrx, camry, camrz)
 		
 		-- project them from 3d to 2d
-		x1, y1 = project3d(x1, y1, z1)
-		x2, y2 = project3d(x2, y2, z2)
-		x3, y3 = project3d(x3, y3, z3)
+		x1, y1 = project3d(x1 + camx, y1 + camy, z1 + camz)
+		x2, y2 = project3d(x2 + camx, y2 + camy, z2 + camz)
+		x3, y3 = project3d(x3 + camx, y3 + camy, z3 + camz)
 
 		-- draw polygon
 		draw_poly(x1, y1, x2, y2, x3, y3, color)
@@ -120,6 +106,7 @@ function draw_call()
 	poly_queue = {}
 end
 
+-- appends polygon to list
 function append_poly(x1, y1, z1, x2, y2, z2, x3, y3, z3, color)
 	table.insert(poly_queue, {x1, y1, z1, x2, y2, z2, x3, y3, z3, color})
 end
@@ -185,6 +172,7 @@ function draw_cube(x, y, z, sx, sy, sz, rx, ry, rz)
 		x2, y2, z2 = rotXYZ(x2 * sx, y2 * sy, z2 * sz, rx, ry, rz)
 		x3, y3, z3 = rotXYZ(x3 * sx, y3 * sy, z3 * sz, rx, ry, rz)
 
+		-- append polygon
 		append_poly(
 			x1 + x, y1 + y, z1 + z,
 			x2 + x, y2 + y, z2 + z,

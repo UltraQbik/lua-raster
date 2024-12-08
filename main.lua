@@ -2,6 +2,7 @@
 -- NOTE: this project was made using 128x128 display,
 -- and other resolutions for now will not be scaled
 local display = getComponent("display")
+local utils = require("utils")
 display.setOptimizationLevel(0)
 
 -- fetch display resolution
@@ -9,8 +10,8 @@ local WIDTH, HEIGHT = display.getSize()
 local HWIDTH, HHEIGHT = WIDTH / 2, HEIGHT / 2
 
 -- variables
-local camx, camy, camz = 0, 0, 0
-local camrx, camry, camrz = 0, 0, 0
+local cam = sm.vec3.new(0, 0, 0)  -- camera position
+local camr = sm.vec3.new(0, 0, 0)  -- camera rotation
 
 -- constants
 local FOV = 120
@@ -54,61 +55,59 @@ local cube_polygons = {
 local poly_queue = {}
 local poly_queue_ptr = 0
 
--- [rotations]
--- rotate around X axis
-function rotX(x, y, z, theta)
-	return x, y * math.cos(theta) - z * math.sin(theta), z * math.cos(theta) + y * math.sin(theta)
-end
-
--- rotate around Y axis
-function rotY(x, y, z, theta)
-	return x * math.cos(theta) - z * math.sin(theta), y, z * math.cos(theta) + x * math.sin(theta)
-end
-
--- rotate around Z axis
-function rotZ(x, y, z, theta)
-	return x * math.cos(theta) - y * math.sin(theta), y * math.cos(theta) + x * math.sin(theta), z
-end
-
--- rotate around X then Y then Z axies
-function rotXYZ(x, y, z, rx, ry, rz)
-	px, py, pz = rotX(x, y, z, rx)
-	px, py, pz = rotY(px, py, pz, ry)
-	return rotZ(px, py, pz, rz)
-end
-
 -- simple perspective projection
-function project3d(x, y, z)
-	return x * FOV / z + HWIDTH, y * FOV / z + HHEIGHT
+function project3d(pos)
+	return pos.x * FOV / pos.z + HWIDTH, pos.y * FOV / pos.z + HHEIGHT
 end
 
 -- call to draw polygons
 function draw_call()
+	-- apply camera transformations to all polygons
+	for i, poly in ipairs(poly_queue) do
+		-- rotate & move vertices according to camera's position and rotation
+		poly[1] = poly[1]:rotateX(camr.x):rotateY(camr.y):rotateZ(camr.z) + cam
+		poly[2] = poly[2]:rotateX(camr.x):rotateY(camr.y):rotateZ(camr.z) + cam
+		poly[3] = poly[3]:rotateX(camr.x):rotateY(camr.y):rotateZ(camr.z) + cam
+	end
+
+	-- sort polygons by distance to camera
 	table.sort(
 		poly_queue,
-		function(a, b) return math.min(a[3], a[6], a[9]) > math.min(b[3], b[6], b[9]) end)
-	for i, v in ipairs(poly_queue) do
-		local x1, y1, z1, x2, y2, z2, x3, y3, z3, color = unpack(v)
+		function(a, b)
+			local dist_a = (utils.dist(a[1], cam) + utils.dist(a[2], cam) + utils.dist(a[3], cam)) / 3
+			local dist_b = (utils.dist(b[1], cam) + utils.dist(b[2], cam) + utils.dist(b[3], cam)) / 3
+			return dist_a > dist_b
+		end)
 
-		-- rotate vertices
-		x1, y1, z1 = rotXYZ(x1, y1, z1, camrx, camry, camrz)
-		x2, y2, z2 = rotXYZ(x2, y2, z2, camrx, camry, camrz)
-		x3, y3, z3 = rotXYZ(x3, y3, z3, camrx, camry, camrz)
-		
-		-- project them from 3d to 2d
-		x1, y1 = project3d(x1 + camx, y1 + camy, z1 + camz)
-		x2, y2 = project3d(x2 + camx, y2 + camy, z2 + camz)
-		x3, y3 = project3d(x3 + camx, y3 + camy, z3 + camz)
+	-- render polygons
+	for i, poly in ipairs(poly_queue) do
+		-- project verticies from 3d to 2d
+		local x1, y1 = project3d(poly[1])
+		local x2, y2 = project3d(poly[2])
+		local x3, y3 = project3d(poly[3])
 
 		-- draw polygon
-		draw_poly(x1, y1, x2, y2, x3, y3, color)
+		draw_poly(
+			x1, y1,  -- vertex 1
+			x2, y2,  -- vertex 2
+			x3, y3,  -- vertex 3
+			poly[4]  -- polygon color
+		)
 	end
 	poly_queue = {}
 end
 
 -- appends polygon to list
-function append_poly(x1, y1, z1, x2, y2, z2, x3, y3, z3, color)
-	table.insert(poly_queue, {x1, y1, z1, x2, y2, z2, x3, y3, z3, color})
+function append_poly(point1, point2, point3, color)
+	table.insert(
+		poly_queue,
+			{
+				point1,  -- vertex 1
+				point2,  -- vertex 2
+				point3,  -- vertex 3
+				color  -- polygon color
+			}
+		)
 end
 
 -- draw triangle function
@@ -144,8 +143,9 @@ function draw_poly(x1, y1, x2, y2, x3, y3, color)
 		end
 	end
 
-	-- reset 'x offset 1' to be at 'x2', otherwise triangle will be drawn incorrectly
+	-- set both offsets to be at exact points
 	xo1 = x2
+	xo2 = slope_middle * (y2 - y1) + x1
 
 	if y3 - y2 > DRAW_THRESHOLD then  -- draw bottom-flat triangle
 		-- slope for line p2 to p3
@@ -159,37 +159,33 @@ function draw_poly(x1, y1, x2, y2, x3, y3, color)
 end
 
 -- object drawing function (for now just cube)
-function draw_cube(x, y, z, sx, sy, sz, rx, ry, rz)
+function draw_cube(pos, size, rot)
 	local vertex_count = 12
 	for i=1, vertex_count do
 		-- fetch vertices
-		local x1, y1, z1 = unpack(cube_vertices[cube_polygons[i][1]])
-		local x2, y2, z2 = unpack(cube_vertices[cube_polygons[i][2]])
-		local x3, y3, z3 = unpack(cube_vertices[cube_polygons[i][3]])
+		local point1 = sm.vec3.new(unpack(cube_vertices[cube_polygons[i][1]])) * size
+		local point2 = sm.vec3.new(unpack(cube_vertices[cube_polygons[i][2]])) * size
+		local point3 = sm.vec3.new(unpack(cube_vertices[cube_polygons[i][3]])) * size
 
 		-- rotate vertices
-		x1, y1, z1 = rotXYZ(x1 * sx, y1 * sy, z1 * sz, rx, ry, rz)
-		x2, y2, z2 = rotXYZ(x2 * sx, y2 * sy, z2 * sz, rx, ry, rz)
-		x3, y3, z3 = rotXYZ(x3 * sx, y3 * sy, z3 * sz, rx, ry, rz)
+		point1 = point1:rotateX(rot.x):rotateY(rot.y):rotateZ(rot.z)
+		point2 = point2:rotateX(rot.x):rotateY(rot.y):rotateZ(rot.z)
+		point3 = point3:rotateX(rot.x):rotateY(rot.y):rotateZ(rot.z)
 
 		-- append polygon
-		append_poly(
-			x1 + x, y1 + y, z1 + z,
-			x2 + x, y2 + y, z2 + z,
-			x3 + x, y3 + y, z3 + z,
-			i / vertex_count * 255)
+		append_poly(point1 + pos, point2 + pos, point3 + pos, i / vertex_count * 255)
 	end
 end
 
 -- main loop
-local frame_count = 0
+local frame_count = 330
 function onTick()
 	display.clear()
 	frame_count = frame_count + 1
 	draw_cube(
-		0, 0, 20,
-		3, 3, 3,
-		frame_count / 100, frame_count / 100, frame_count / 100)
+		sm.vec3.new(0, 0, 30),
+		sm.vec3.new(3, 3, 3),
+		sm.vec3.new(frame_count / 80, frame_count / 80, frame_count / 80))
 	draw_call()
 	display.flush()
 end
